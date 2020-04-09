@@ -1,0 +1,150 @@
+%!TEX encoding = UTF-8 Unicode
+
+\documentclass{article}
+% [hangul] option on
+\usepackage[hangul]{kotex}
+\usepackage{stackrel,stmaryrd}
+\usepackage{amsmath,amsfonts,amssymb,amsthm,proof,mathtools}
+\usepackage{mathpartir}
+\usepackage{epstopdf, epsfig}
+\usepackage{setspace}
+%\usepackage{macro}
+\usepackage{fancyhdr}
+\usepackage{geometry}
+
+
+% \geometry{
+ %left=20mm
+% }
+
+\pagestyle{fancy}
+\rhead{\today}
+% [hangul] option off
+%\usepackage{kotex}
+%\linespread{1.2}
+
+% page layout (width, height)s
+\setlength{\hoffset}{-25pt}
+\addtolength{\textwidth}{50pt}
+\setlength{\voffset}{-60pt}
+\addtolength{\textheight}{130pt}
+
+\begin{document}
+\title{Tensor shape 분석 언어 명세}
+
+\maketitle
+
+
+%%macro
+\newcommand{\w}[1]{\ensuremath{\textit{#1}}}
+\newcommand{\ttt}[1]{\texttt{#1}}
+\newcommand{\x}{\times}
+\newcommand{\rar}{\rightarrow}
+\newcommand{\Rar}{\Rightarrow}
+\newcommand{\Set}[1]{\{#1\}}
+\newcommand{\Z}{\mathbb{Z}}\newcommand{\Q}{\mathbb{Q}}
+\newcommand{\Maps}[3]{#1\{#2 \mapsto #3\}}
+\newcommand{\U}{\cup}
+\newcommand{\join}{\sqcup}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{목표}
+Python의 일반 코드를 전체 분석 목표로 삼기에는 Python 문법이 너무 방대하다.
+대신 x = torch.f(args) 에 대해 각 f를 명세화함으로써, 미리 주어진 args의 precondition으로부터 x의 타입 및 shape, postcondition을 도출해내고, 따로 외부 분석기 (symbolic analysis 등)에서 precondition-postcondition들을 차례차례 조립하기로 하였다.
+
+즉, PyTorch 코드 한 라인에 대해 args의 값을 전부 (실제든 symbolic한 값이든) 안다고 가정하고 x의 형태를 도출하는 것을 목표로 한다. 분석 대상은 shape, value, dtype 등이 있으나, 현재는 shape 분석만을 목표로 한다.
+
+\section{대상언어}
+\begin{Large}
+  \[\begin{array}{lcrclr}
+  && \w{code} & \rar & \w{stmt} & \\
+  && \w{stmt} & \rar & \w{stmt} \ ; \w{stmt} & \\
+  &&          & | & \w{x}_{n} \, \ttt{:=} \, \w{num} & \\
+  &&          & | & \w{x}_{s}\, \ttt{:=} \, \w{shape} & \\
+  &&          & | & \w{x}_{t}\, \ttt{:=} \, \w{tensor} & \\
+  &&          & | & \ttt{if} \, \w{bool} \, \w{stmt stmt}& \\
+  && \w{num} & \rar & \w{n} & \\
+  &&          & | & \w{x}_{n} \, \w{numeric-op} \, \w{x}_{n} & \\
+  &&          & | & \w{x}_{s}\ttt{[}\w{n}\ttt{]} & \\
+  &&          & | & \ttt{len(} \w{x}_{s} \, | \, \w{x}_{t}\,\w{list} \ttt{)} & \\
+  && \w{shape} & \rar & \ttt{(} \w{n} \texttt{|} \w{x}_{n} \ttt{)} \w{list} & \\
+  &&          & | & \w{x}_{s}\ttt{[}\w{n}^{?}\ttt{:}\,\w{n}^{?}\ttt{]} & \\
+  &&          & | & \ttt{shape}\ttt{(}\w{x}_{t}\ttt{)} & \\
+  &&          & | & \w{x}_{s} \ttt{++} \w{x}_{s} & \\
+  &&          & | & \w{x}_{n} \ttt{::} \w{x}_{s} & \\
+\end{array}\] \\
+\end{Large}
+
+\begin{Large}
+  \[\begin{array}{lcrclr}
+
+  && \w{tensor} & \rar & \texttt{fromShape(} \w{x}_{s} \texttt{)} & \\
+  && & | & \texttt{subtensor(} \w{x}_{t} \texttt{,} \, \w{range}^{*} \texttt{)} & \\
+  && & | & \texttt{reduce(} \w{x}_{t} \texttt{,} \, \w{n} \texttt{)} & \\
+  && & | & \texttt{reshape(} \w{x}_{t} \texttt{,} \, \w{x}_{n}^{*} \texttt{)} & \\
+  && & | & \texttt{permute(} \w{x}_{t} \texttt{,} \, \w{n}^{*} \texttt{)} & \\
+  && & | & \texttt{concat(} \w{x}_{t}\,\w{list} \texttt{,} \, \w{n} \texttt{)} & \\
+  && & | & \texttt{stack(} \w{x}_{t}\,\w{list} \texttt{,} \, \w{n} \texttt{)} & \\
+  && & | & \texttt{repeat(} \w{x}_{t} \texttt{,} \, \w{n} \texttt{,} \, \w{x}_{n} \texttt{)} & \\
+  && & | & \texttt{binaryop(} \w{x}_{t} \texttt{,} \, \w{x}_{t} \texttt{,} \, \w{tensor-op} \texttt{)} & \\
+
+  && \w{bool} & \rar & \w{x}_{n} \, \w{compare-op} \, \w{x}_{n} & \\
+  &&  & | & \w{x}_{s} \, \ttt{==} \, \w{x}_{s} & \\
+
+  && \w{tensor-op} & \rar & \texttt{no-broad}^{?} \, \w{binary-op} & \\
+  &&           & | & \texttt{no-broad}^{?} \, \texttt{(matmul|index|mask)} & \\
+
+  && \w{binary-op} & \rar & \w{numeric-op} \, | \, \w{compare-op} & \\
+  && \w{numeric-op} & \rar & \texttt{+|-|*|//|\%|...} & \\
+  && \w{compare-op} & \rar & \texttt{<|>|<=|>=|==|...} & \\
+
+  && \w{range} & \rar & \texttt{(} \w{x}_{n}^{?} \texttt{,} \, \w{x}_{n}^{?} \texttt{,} \, \w{n} \texttt{)} & \\
+
+
+
+\end{array}\] \\
+\end{Large}
+
+\newpage
+
+\section{분석 명세}
+
+
+
+\section{변경점}
+
+\begin{itemize}
+\item \ttt{torch.Tensor}이 가진 메소드들의 shape 변형을 단일하게 표현할 수 있는 \w{stmt}를 제작하기 위해 \w{stmt}의 형태를 고안
+\item $\w{x}_{n}$ 등은 (아래첨자에 따라 namespace가 다른) 변수들. \w{stmt} 상에서 정의될 수도 있고 precondition으로 주어질 수도 있다.
+\item \w{num}과 $\w{x}_{n}$을 분리하여, 정적으로 알 수 있는 정수값이 어디에 와야하는지를 정확히 명세화 하였음.
+\item 리스트($\w{x}_{tl}$)를 사용하지 않고서는 반복문 없이 \w{stmt} 및 \w{tensor-function}을 표현할 수 있는 방법이 아무리 해도 떠오르지 않아, 어쩔 수 없이 리스트를 다루기로 함
+\item \w{shape} 및 리스트($\w{x}_{tl}$)은 길이의 값을 정확히 알고 있는 ($\w{num}, \w{x}_{n}^{*}$) 형태와 길이의 값이 미지수인 ($\w{x}_{n}, (\w{num} \mapsto \w{x}_{n})^{*}$) 형태, 2개를 사용
+\item 두 형태의 리스트는 각각 증명 트리에서 분리해서 다루면 좋을 것 같다.
+\end{itemize}
+
+\section{고려사항}
+
+\subsection{Python 전체 코드의 가정}
+\begin{itemize}
+  \item 모든 함수 실행 인라인화 (재귀 호출, 순환 호출, while문, first-class 또는 lambda function 없음)
+  \item 클래스 함수를 인라인 할 때, \texttt{self} 변수는 일종의 dictionary 값으로 취급됨.
+  \item 함수 인라인이 가능하도록 모든 변수는 타입을 명확하게 알 수 있어야 함
+\end{itemize}
+
+\subsection{현재 문제점}
+\begin{itemize}
+\item \ttt{squeeze(tensor, num?)} 함수의 구현: num번째 axis의 크기가 1이면 해당 axis 제거, num을 안주면 모든 axis에 대해 크기가 1인 axis 제거
+\item 위 함수는 분기문 및 반복문을 사용하여야 하나 현재 \w{stmt}로는 정확한 구현이 불가.
+\item 단, axis로 명시한 축의 길이가 1이 아닐시 대부분은 잘못 구현한 것이므로 $assert(shape(x_t)[num] = 1); reduce(x_t, num)$ 이라고 하면 됨
+\end{itemize}
+
+%       &&   \w{E}   & \rar &\w{n} &\\
+ %      &&                 & | & \tt{numOf}\, \w{(cmd)} &\\
+   %%    &&                 & | & \tt{block} \, \w{(cmd)} \,\, | \,\, \tt{wordLine} \, \w{(cmd)} \,\, | \,\, \tt{column} \, \w{(cmd)} &\\
+      % &&                 & | & \w{E} \, + \w{E} \,\, | \,\, \w{E} \, - \w{E} \,\, | \,\, \w{E} \, * \w{E} \,\, | \,\, \w{E} \, \tt{/} \w{E} &\\
+
+
+\end{document}
